@@ -44,14 +44,27 @@ public class MainActivity extends Activity {
 				  	   var os = s.getOutputStream();
 					) {
 						var srt = Srt.parse(sc);
-						Srt.scale(srt, 2.5F);
+						/*
+						var text = srt.get(0).localizedTextSnippets.get(0).textSnippet;
+						try (var ps = new PrintStream(os)) {
+							for (var speechRate=.19F; speechRate<=4.01F; speechRate+=.01F) {
+								err.println(speechRate);
+								ttsBuf.synthesize(Locale.JAPAN, text, speechRate);
+								ttsBuf.trimSilence();
+								var samplesCount = ttsBuf.bBuf.remaining() / Short.BYTES;
+								ps.printf("%4.2f%10s%n", speechRate, samplesCount);
+							}
+						}
+						*/
+						//Srt.scale(srt, 2.5F);
 						var written=0;
 						for (var e : srt) {
 							var start = Math.round(
 								e.timecodesInMilSecs[0] /(float) 1000 * ttsBuf.SAMPLE_RATE
 							) * Short.BYTES;
 							{
-								var t = Math.round(e.timecodesInMilSecs[0] /(float) 2.5F);
+								//var t = Math.round(e.timecodesInMilSecs[0] /(float) 2.5F);
+								var t = e.timecodesInMilSecs[0];
 								err.printf("%02d:%02d,%03d ", t/1000/60, t/1000%60, t%1000);
 							}
 							cb.readZeros(cb.remaining(), start-written-cb.remaining());
@@ -66,7 +79,7 @@ public class MainActivity extends Activity {
 					err.println("A client has been disconnected.");
 				}
 			} catch (Exception exc) {
-				//exc.printStackTrace();
+				exc.printStackTrace();
 				err.printf("%s occured%n", exc);
 			}
 		}).start();

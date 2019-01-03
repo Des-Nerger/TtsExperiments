@@ -157,18 +157,21 @@ final class TtsAudioBuffer<This extends TtsAudioBuffer> {
 	static class Locales {
 		static final float
 			CHINESE_WEIGHT = 0.6F,
+			JAPANESE_WEIGHT = CHINESE_WEIGHT,
 			ENGLISH_WEIGHT = 1F-CHINESE_WEIGHT;
 		static final float[]
 			/* withoutTrimmingSilence & withoutAddingPauses
 				CHINESE_HYPERBOLA_PARAMETERS =
-					{1.7732040F, -0.7458208F, -0.0375369F, 5.0222243F, -4.0082481F, -0.0126590F},
+					{1.7732040F, -0.7458208F, -0.0375369F,  5.0222243F, -4.0082481F, -0.0126590F},
 				ENGLISH_HYPERBOLA_PARAMETERS =
-					{1.8122062F, -0.7882950F, -0.0318054F, 5.1861847F, -4.1677760F, -0.0136545F};
+					{1.8122062F, -0.7882950F, -0.0318054F,  5.1861847F, -4.1677760F, -0.0136545F};
 			/*/// trimSilence & addPauses
 				CHINESE_HYPERBOLA_PARAMETERS =
-					{1.7715442F, -0.7471100F, -0.0323078F, 5.0377975F, -4.0806848F, 0.0039996F},
+					{1.7715442F, -0.7471100F, -0.0323078F,  5.0377975F, -4.0806848F, +0.0039996F},
+				JAPANESE_HYPERBOLA_PARAMETERS =
+					{1.7717927F, -0.7500721F, -0.0302079F,  5.0085549F, -4.0256025F, -0.0049099F},
 				ENGLISH_HYPERBOLA_PARAMETERS =
-					{1.7750670F, -0.7527805F, -0.0301314F, 5.0207221F, -4.0220480F, -0.0080111F};
+					{1.7750670F, -0.7527805F, -0.0301314F,  5.0207221F, -4.0220480F, -0.0080111F};
 			//*/
 
 		static float hyperbola(float[] parameters, float x) {
@@ -195,6 +198,8 @@ final class TtsAudioBuffer<This extends TtsAudioBuffer> {
 		{
 			if      (locale==Locale.CHINA)
 				return This.hyperbola(CHINESE_HYPERBOLA_PARAMETERS, 1/scalingFactor);
+			else if (locale==Locale.JAPAN)
+				return This.hyperbola(JAPANESE_HYPERBOLA_PARAMETERS, 1/scalingFactor);
 			else if (locale==Locale.US)
 				return This.hyperbola(ENGLISH_HYPERBOLA_PARAMETERS, 1/scalingFactor);
 			else
@@ -203,6 +208,8 @@ final class TtsAudioBuffer<This extends TtsAudioBuffer> {
 		static float getWeight(Locale locale) {
 			if      (locale==Locale.CHINA)
 				return CHINESE_WEIGHT;
+			else if (locale==Locale.JAPAN)
+				return JAPANESE_WEIGHT;
 			else if (locale==Locale.US)
 				return ENGLISH_WEIGHT;
 			else

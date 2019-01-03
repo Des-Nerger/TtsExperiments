@@ -27,7 +27,7 @@ final class Srt {
 			for (var i=0; sc.hasNext(); ) {
 				switch (state) {
 				case NUMERIC_COUNTER:
-					Integer.parseInt(sc.next());
+					/*err.println(*/ Integer.parseInt(sc.next()) /*)*/;
 					sc.useDelimiter(This.LINES_DELIMITER_PATTERN);
 					state = This.State.TIMECODES;
 					break;
@@ -101,7 +101,7 @@ final class Srt {
 				} catch (CloneNotSupportedException exc) {
 					// Cannot happen since This implements the Cloneable interface
 					throw new InternalError(exc.toString());
-        }
+				}
 			}
 			LocalizedTextSnippet toLocalizedTextSnippet(StringBuilder sb) {
 				return new LocalizedTextSnippet(locale, sb.substring(position, limit));
@@ -157,7 +157,8 @@ final class Srt {
 								currentSnippet.add(currentToken);
 								if (c == END_OF_TEXT) {
 									if (currentSnippet.locale == null) {
-										currentSnippet.locale = Locale.CHINA;
+										//currentSnippet.locale = Locale.CHINA;
+										currentSnippet.locale = Locale.JAPAN;
 									}
 								} else
 									continue;
@@ -170,11 +171,18 @@ final class Srt {
 						state = This.toggle(state);
 					}
 					if (c != END_OF_TEXT) {
+						/*
 						//if (UnicodeScript.of(c) == UnicodeScript.HAN) {
 						if (0x4E00 <= c && c <= 0x9FFF || 0x3400 <= c && c <= 0x4DBF) {
 							currentToken.locale = Locale.CHINA;
+						*/
+						if (0x4E00 <= c && c <= 0x9FFF || 0x3400 <= c && c <= 0x4DBF ||
+						    0x3040 <= c && c <= 0x30FF
+						) {
+							currentToken.locale = Locale.JAPAN;
 						} else if ('0' <= c && c <= '9' || 'A' <= c && c <= 'Z' || 'a' <= c && c <= 'z') {
-							if (currentToken.locale != Locale.CHINA)
+							//if (currentToken.locale != Locale.CHINA)
+							if (currentToken.locale != Locale.JAPAN)
 								currentToken.locale = Locale.US;
 						} else {
 							if (c == '\n')
