@@ -15,6 +15,7 @@ import static java.nio.ByteOrder.*;
 public class MainActivity extends Activity {
 	EditText et;
 	final TtsAudioBuffer<TtsAudioBuffer> ttsBuf = new TtsAudioBuffer<>();
+	Socket currentClientSocket;
 
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
@@ -31,6 +32,15 @@ public class MainActivity extends Activity {
 	}
 
 	public void onClick(View v) {
+		if (currentClientSocket != null) {
+			try {
+				currentClientSocket.close();
+			} catch (Exception exc) {
+				exc.printStackTrace();
+				err.printf("%s occured when closing Socket%n", exc);
+			}
+			return;
+		}
 		var portString = et.getText().toString();
 		new Thread(() -> {
 			var cb = new CyclicByteBuffer(64*1024*1024);
@@ -39,7 +49,7 @@ public class MainActivity extends Activity {
 			try (var ss = new ServerSocket(Integer.parseInt(portString), 1)) {
 				err.println("Started.");
 				for(;;) {
-					try (var s = ss.accept();
+					try (var s = currentClientSocket = ss.accept();
 					     var sc = new Scanner(s.getInputStream());
 				  	   var os = s.getOutputStream();
 					) {
@@ -75,12 +85,18 @@ public class MainActivity extends Activity {
 							cb.write(os, cb.remaining()*3/4);
 						}
 						cb.write(os, cb.remaining());
+					} catch (Exception exc) {
+						if (!exc.getMessage().equals("Socket closed")) {
+							exc.printStackTrace();
+							err.printf("%s occured%n", exc);
+						}
+						cb.clear();
 					}
 					err.println("A client has been disconnected.");
 				}
 			} catch (Exception exc) {
 				exc.printStackTrace();
-				err.printf("%s occured%n", exc);
+				err.printf("%s occured when closing ServerSocket%n", exc);
 			}
 		}).start();
 	}

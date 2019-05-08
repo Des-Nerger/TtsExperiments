@@ -14,6 +14,10 @@ final class CyclicByteBuffer<This extends CyclicByteBuffer> {
 		bb = ByteBuffer.allocate(capacity);
 	}
 
+	void clear() {
+		limit = position = 0;
+	}
+
 	int remaining() {
 		var cap = bb.capacity();
 		if (position <= limit)
