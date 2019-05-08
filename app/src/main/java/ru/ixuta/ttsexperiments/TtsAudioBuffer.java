@@ -111,7 +111,7 @@ final class TtsAudioBuffer<This extends TtsAudioBuffer> {
 		void synthesizeFitted(CyclicByteBuffer cb, int millisecs,
 		                      List<LocalizedTextSnippet> localizedTextSnippets
 		) {
-			final var PAUSE_LENGTH_IN_SAMPLES = 400;
+			final var PAUSE_LENGTH_IN_SAMPLES = 712;
 			var requestedLengthInSamples = millisecs /(float) 1000 * t.SAMPLE_RATE;
 			var usualLengthInSamples = 0F;
 			for (var it = localizedTextSnippets.iterator();;) {
