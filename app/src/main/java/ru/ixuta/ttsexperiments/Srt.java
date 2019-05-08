@@ -2,10 +2,11 @@ package ru.ixuta.ttsexperiments;
 
 import java.io.*;
 import java.util.*;
-import java.util.function.*;
 import java.util.regex.*;
 import static java.lang.Character.*;
+//UB//import static java.lang.Character.UnicodeBlock.*;
 import static java.lang.System.*;
+
 
 final class Srt {
 	static <This extends Srt> void scale(List<This.Entry> entries, float scalingFactor) {
@@ -14,9 +15,25 @@ final class Srt {
 				e.timecodesInMilSecs[i] = Math.round(e.timecodesInMilSecs[i] * scalingFactor);
 	}
 
+	interface ExceptingSupplier<T> {
+		T get() throws Exception;
+	}
+
 	static <This extends Srt> List<This.Entry> parse(final Scanner sc)
 		throws Exception
 	{
+		final var primaryLocale = ((ExceptingSupplier<Locale>) () -> {
+			final var primaryLocaleLine = sc.nextLine();
+			switch (primaryLocaleLine) {
+			case "日本": case "日":
+				return Locale.JAPAN;
+			case "中":
+				return Locale.CHINA;
+			default:
+				throw new Exception(String.format("unsupported primary locale: «%s»%n", primaryLocaleLine));
+			}
+		}).get();
+		err.printf("primary locale is set to %s%n", primaryLocale);
 		final var entries = new ArrayList<This.Entry>();
 		{
 			final var curText = new StringBuilder() ;
@@ -49,9 +66,8 @@ final class Srt {
 						if (sc.hasNext())
 							break;
 					}
-					curEntry.localizedTextSnippets = Entry.LocalizedTextSnippets.snip(curText);
+					curEntry.localizedTextSnippets = Entry.LocalizedTextSnippets.snip(curText, primaryLocale);
 					curText.setLength(0);
-					//err.println(Arrays.toString(curEntry.timecodesInMilSecs));
 					entries.add(curEntry);
 					curEntry = null;
 					sc.useDelimiter(This.NONEMPTY_LINES_DELIMITER_PATTERN);
@@ -93,7 +109,8 @@ final class Srt {
 		}
 		static final class LocalizedInterval<This extends LocalizedInterval> implements Cloneable {
 			Locale locale;
-			int position, limit;
+			static final int NO_INDEX = -1;
+			int position, limit, firstLocalCharIndex=NO_INDEX;
 			@Override
 			public LocalizedInterval clone() {
 				try {
@@ -106,6 +123,14 @@ final class Srt {
 			LocalizedTextSnippet toLocalizedTextSnippet(StringBuilder sb) {
 				return new LocalizedTextSnippet(locale, sb.substring(position, limit));
 			}
+			void updateAfterInsertingIndex(int index) {
+				if (index < position)
+					position++;
+				if (index < limit)
+					limit++;
+				if (index <= firstLocalCharIndex)
+					firstLocalCharIndex++;
+			}
 			void add(LocalizedInterval addend) {
 				if (addend.locale != null) {
 					if (locale!=null && locale!=addend.locale) {//paranoid check. TOCLEAN after debugged
@@ -113,6 +138,8 @@ final class Srt {
 						throw new IllegalArgumentException("the intervals can't have existing distinct locales");
 					}
 					locale = addend.locale;
+					if (firstLocalCharIndex == NO_INDEX)
+						firstLocalCharIndex = addend.firstLocalCharIndex;
 				}
 				if ((addend.limit-addend.position) == 0) return;
 				if (limit < addend.position) {//paranoid check. TOCLEAN after debugged
@@ -130,7 +157,7 @@ final class Srt {
 				return (state == WITHIN_WHITESPACE)? WITHIN_NONWHITESPACE : WITHIN_WHITESPACE;
 			}
 			static <This extends LocalizedTextSnippets>
-			       List<LocalizedTextSnippet> snip(StringBuilder text)
+			       List<LocalizedTextSnippet> snip(StringBuilder text, Locale primaryLocale)
 			{
 				final var END_OF_TEXT = -1;
 				final var list = new ArrayList<LocalizedTextSnippet>();
@@ -139,11 +166,14 @@ final class Srt {
 				var state = WITHIN_WHITESPACE;
 				for (var i=0;; i++) {
 					int c;
-					if      (i <  text.length())
+					//UB//UnicodeBlock ub;
+					if      (i <  text.length()) {
 						c = text.charAt(i);
-					else if (i == text.length())
+						//UB//ub = UnicodeBlock.of(c);
+					} else if (i == text.length()) {
 						c = END_OF_TEXT;
-					else
+						//UB//ub = null;
+					} else
 						break;
 					if (state==WITHIN_NONWHITESPACE && isWhitespace(c) ||
 					    state==WITHIN_WHITESPACE && !isWhitespace(c) ||
@@ -156,34 +186,55 @@ final class Srt {
 							) {
 								currentSnippet.add(currentToken);
 								if (c == END_OF_TEXT) {
-									if (currentSnippet.locale == null) {
-										//currentSnippet.locale = Locale.CHINA;
-										currentSnippet.locale = Locale.JAPAN;
-									}
+									if (currentSnippet.locale == null)
+										currentSnippet.locale = primaryLocale;
 								} else
 									continue;
 							}
+
+							if (currentSnippet.locale == Locale.JAPAN &&
+								currentSnippet.firstLocalCharIndex != LocalizedInterval.NO_INDEX
+							) {
+								switch (text.charAt(currentSnippet.firstLocalCharIndex)) {
+								case 'っ': case 'ッ':
+									break;
+								default:
+									text.insert(currentSnippet.firstLocalCharIndex, 'っ');
+									i++;
+									currentSnippet.updateAfterInsertingIndex(currentSnippet.firstLocalCharIndex);
+									currentToken.updateAfterInsertingIndex(currentSnippet.firstLocalCharIndex);
+								}
+							}
+
 							list.add(currentSnippet.toLocalizedTextSnippet(text));
 							currentSnippet = currentToken.clone();
 						} while (false) ;
 						currentToken.locale = null;
+						currentToken.firstLocalCharIndex = LocalizedInterval.NO_INDEX;
 						currentToken.position = currentToken.limit;
 						state = This.toggle(state);
 					}
 					if (c != END_OF_TEXT) {
-						/*
-						//if (UnicodeScript.of(c) == UnicodeScript.HAN) {
-						if (0x4E00 <= c && c <= 0x9FFF || 0x3400 <= c && c <= 0x4DBF) {
-							currentToken.locale = Locale.CHINA;
+						/*UB//
+						if (ub == CJK_UNIFIED_IDEOGRAPHS || ub == CJK_UNIFIED_IDEOGRAPHS_EXTENSION_A ||
+						    ub == HIRAGANA || ub == KATAKANA ||
+						    0xFF10 <= c && c <= 0xFF19 || 0xFF21 <= c && c <= 0xFF3A || 0xFF41 <= c && c <= 0xFF5A
+						) {
 						*/
 						if (0x4E00 <= c && c <= 0x9FFF || 0x3400 <= c && c <= 0x4DBF ||
-						    0x3040 <= c && c <= 0x30FF
+						    primaryLocale == Locale.JAPAN && (
+						    	0x3041 <= c && c <= 0x3096 || 0x30A1 <= c && c <= 0x30FA ||
+						    	0xFF10 <= c && c <= 0xFF19 || 0xFF21 <= c && c <= 0xFF3A || 0xFF41 <= c && c <= 0xFF5A
+						    )
 						) {
-							currentToken.locale = Locale.JAPAN;
+							currentToken.locale = primaryLocale;
+							if (currentToken.firstLocalCharIndex == LocalizedInterval.NO_INDEX)
+								currentToken.firstLocalCharIndex = i;
 						} else if ('0' <= c && c <= '9' || 'A' <= c && c <= 'Z' || 'a' <= c && c <= 'z') {
-							//if (currentToken.locale != Locale.CHINA)
-							if (currentToken.locale != Locale.JAPAN)
+							if (currentToken.locale != primaryLocale)
 								currentToken.locale = Locale.US;
+							if (currentToken.firstLocalCharIndex == LocalizedInterval.NO_INDEX)
+								currentToken.firstLocalCharIndex = i;
 						} else {
 							if (c == '\n')
 								text.setCharAt(i, ' ');
