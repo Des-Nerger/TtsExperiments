@@ -9,3 +9,5 @@
 # cd /data/user/0/ru.ixuta.ttsexperiments/files
 # #mkdir user
 # mount -t tmpfs -o rw,noatime,mode=0771,uid=10065,gid=10065 none $PWD/user
+
+#awk '{printf "%4.2f%10.6f\n", $1, 58053/$2}' android.english.sample4 >android.english.sample4.div
