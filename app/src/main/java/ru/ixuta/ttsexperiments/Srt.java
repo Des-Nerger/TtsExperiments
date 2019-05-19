@@ -3,8 +3,10 @@ package ru.ixuta.ttsexperiments;
 import java.io.*;
 import java.util.*;
 import java.util.regex.*;
+/*UB//
 import static java.lang.Character.*;
-//UB//import static java.lang.Character.UnicodeBlock.*;
+import static java.lang.Character.UnicodeBlock.*;
+*/
 import static java.lang.System.*;
 
 
@@ -15,22 +17,20 @@ final class Srt {
 				e.timecodesInMilSecs[i] = Math.round(e.timecodesInMilSecs[i] * scalingFactor);
 	}
 
-	interface ExceptingSupplier<T> {
-		T get() throws Exception;
-	}
-
 	static <This extends Srt> List<This.Entry> parse(final Scanner sc)
 		throws Exception
 	{
-		final var primaryLocale = ((ExceptingSupplier<Locale>) () -> {
-			final var primaryLocaleLine = sc.nextLine();
-			switch (primaryLocaleLine) {
-			case "日本": case "日":
-				return Locale.JAPAN;
-			case "中":
-				return Locale.CHINA;
-			default:
-				throw new Exception(String.format("unsupported primary locale: «%s»%n", primaryLocaleLine));
+		final var primaryLocale = (new Object() {
+			Locale get() throws Exception {
+				final var primaryLocaleLine = sc.nextLine();
+				switch (primaryLocaleLine) {
+				case "日本": case "日":
+					return Locale.JAPAN;
+				case "中":
+					return Locale.CHINA;
+				default:
+					throw new Exception(String.format("unsupported primary locale: «%s»%n", primaryLocaleLine));
+				}
 			}
 		}).get();
 		err.printf("primary locale is set to %s%n", primaryLocale);
@@ -107,9 +107,9 @@ final class Srt {
 				return String.format("%s:[%s]", locale, textSnippet);
 			}
 		}
+		static final int NO_INDEX = -1, UNSPECIFIED_INDEX = -2;
 		static final class LocalizedInterval<This extends LocalizedInterval> implements Cloneable {
 			Locale locale;
-			static final int NO_INDEX = -1;
 			int position, limit, firstLocalCharIndex=NO_INDEX;
 			@Override
 			public LocalizedInterval clone() {
@@ -152,17 +152,40 @@ final class Srt {
 			}
 		}
 		static final class LocalizedTextSnippets {
-			static final int WITHIN_WHITESPACE=0, WITHIN_NONWHITESPACE=1;
-			static int toggle(int state) {
-				return (state == WITHIN_WHITESPACE)? WITHIN_NONWHITESPACE : WITHIN_WHITESPACE;
+			/*
+			static final boolean isWhitespace(final int c) {
+				return c=='　' || Character.isWhitespace(c);
 			}
+			*/
+			static final boolean WITHIN_WHITESPACE=false, WITHIN_NONWHITESPACE=true;
 			static <This extends LocalizedTextSnippets>
 			       List<LocalizedTextSnippet> snip(StringBuilder text, Locale primaryLocale)
 			{
 				final var END_OF_TEXT = -1;
 				final var list = new ArrayList<LocalizedTextSnippet>();
 				final var currentToken = new LocalizedInterval();
+				final var workaroundForJapanese = new Object() {
+					int applyAsInt(int i, final LocalizedInterval currentSnippet,
+					               final Locale locale, final int firstLocalCharIndex
+					) {
+						if (locale == Locale.JAPAN &&
+						    firstLocalCharIndex != NO_INDEX)
+						{
+							switch (text.charAt(firstLocalCharIndex)) {
+							case 'っ': case 'ッ':
+								break;
+							default:
+								text.insert(firstLocalCharIndex, 'っ');
+								i++;
+								currentSnippet.updateAfterInsertingIndex(firstLocalCharIndex);
+								currentToken.updateAfterInsertingIndex(firstLocalCharIndex);
+							}
+						}
+						return i;
+					}
+				};
 				var currentSnippet = new LocalizedInterval();
+				var newSentenceFirstLocalCharIndex = NO_INDEX;
 				var state = WITHIN_WHITESPACE;
 				for (var i=0;; i++) {
 					int c;
@@ -175,8 +198,8 @@ final class Srt {
 						//UB//ub = null;
 					} else
 						break;
-					if (state==WITHIN_NONWHITESPACE && isWhitespace(c) ||
-					    state==WITHIN_WHITESPACE && !isWhitespace(c) ||
+					if (state==WITHIN_NONWHITESPACE && Character.isWhitespace(c) ||
+					    state==WITHIN_WHITESPACE && !Character.isWhitespace(c) ||
 					    c==END_OF_TEXT
 					) {
 						do {
@@ -184,6 +207,20 @@ final class Srt {
 							    currentToken.locale == null ||
 							    currentSnippet.locale == null
 							) {
+								if (state == WITHIN_WHITESPACE) {
+									var tokenPrecedingIndex = currentToken.position - 1;
+									if (tokenPrecedingIndex >= 0) {
+										switch (text.charAt(tokenPrecedingIndex)) {
+										case '！': case '…': case '？': case '。':
+											newSentenceFirstLocalCharIndex = UNSPECIFIED_INDEX;
+										}
+									}
+								} else {
+									i = workaroundForJapanese.applyAsInt(i, currentSnippet,
+										currentToken.locale, newSentenceFirstLocalCharIndex
+									);
+									newSentenceFirstLocalCharIndex = NO_INDEX;
+								}
 								currentSnippet.add(currentToken);
 								if (c == END_OF_TEXT) {
 									if (currentSnippet.locale == null)
@@ -191,28 +228,16 @@ final class Srt {
 								} else
 									continue;
 							}
-
-							if (currentSnippet.locale == Locale.JAPAN &&
-								currentSnippet.firstLocalCharIndex != LocalizedInterval.NO_INDEX
-							) {
-								switch (text.charAt(currentSnippet.firstLocalCharIndex)) {
-								case 'っ': case 'ッ':
-									break;
-								default:
-									text.insert(currentSnippet.firstLocalCharIndex, 'っ');
-									i++;
-									currentSnippet.updateAfterInsertingIndex(currentSnippet.firstLocalCharIndex);
-									currentToken.updateAfterInsertingIndex(currentSnippet.firstLocalCharIndex);
-								}
-							}
-
+							i = workaroundForJapanese.applyAsInt(i, currentSnippet,
+								currentSnippet.locale, currentSnippet.firstLocalCharIndex
+							);
 							list.add(currentSnippet.toLocalizedTextSnippet(text));
 							currentSnippet = currentToken.clone();
 						} while (false) ;
 						currentToken.locale = null;
-						currentToken.firstLocalCharIndex = LocalizedInterval.NO_INDEX;
+						currentToken.firstLocalCharIndex = NO_INDEX;
 						currentToken.position = currentToken.limit;
-						state = This.toggle(state);
+						state = !state;
 					}
 					if (c != END_OF_TEXT) {
 						/*UB//
@@ -228,13 +253,17 @@ final class Srt {
 						    )
 						) {
 							currentToken.locale = primaryLocale;
-							if (currentToken.firstLocalCharIndex == LocalizedInterval.NO_INDEX)
+							if (currentToken.firstLocalCharIndex == NO_INDEX)
 								currentToken.firstLocalCharIndex = i;
+							if (newSentenceFirstLocalCharIndex == UNSPECIFIED_INDEX)
+								newSentenceFirstLocalCharIndex = i;
 						} else if ('0' <= c && c <= '9' || 'A' <= c && c <= 'Z' || 'a' <= c && c <= 'z') {
 							if (currentToken.locale != primaryLocale)
 								currentToken.locale = Locale.US;
-							if (currentToken.firstLocalCharIndex == LocalizedInterval.NO_INDEX)
+							if (currentToken.firstLocalCharIndex == NO_INDEX)
 								currentToken.firstLocalCharIndex = i;
+							if (newSentenceFirstLocalCharIndex == UNSPECIFIED_INDEX)
+								newSentenceFirstLocalCharIndex = i;
 						} else {
 							if (c == '\n')
 								text.setCharAt(i, ' ');
@@ -257,13 +286,12 @@ final class Srt {
 	                     NONEMPTY_LINES_DELIMITER_PATTERN,
 	                     EMPTY_LINE_PATTERN;
 	static {
-		final var TIMECODE_FORMAT_STRING = "HH:mm:ss,SSS"; //almost unused; used only for its length
 		final var NL = "\r?\n";
 		final var EMPTY_LINE = "[ \t]*";
 
 		TIMECODES_EXTRACTOR_PATTERN = Pattern.compile(
 			String.format("^(.{%s}) --> (.{%<s})$",
-			              TIMECODE_FORMAT_STRING.length()),
+			              "HH:mm:ss,SSS".length()),
 			Pattern.MULTILINE
 		);
 		LINES_DELIMITER_PATTERN = Pattern.compile(NL);
