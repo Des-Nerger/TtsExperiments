@@ -15,6 +15,8 @@ import static java.nio.ByteOrder.*;
 final class TtsAudioBuffer<This extends TtsAudioBuffer> {
 	final TtsAudioBuffer t = this;
 	final int SAMPLE_RATE = 22050;
+	static final float MIN_SPEECH_RATE = .2F;
+	static final float MAX_SPEECH_RATE = 4F;
 	final This.ShortWindow win = new This.ShortWindow(t.SAMPLE_RATE);
 	ByteBuffer bBuf = ByteBuffer.allocate(2*1024*1024);
 
@@ -88,132 +90,114 @@ final class TtsAudioBuffer<This extends TtsAudioBuffer> {
 			sb.put(i, (short)Math.round(sb.get(i) * scalingFactor));
 	}
 
-	/* withoutTrimmingSilence & withoutAddingPauses
-		void synthesizeFitted(CyclicByteBuffer cb, int millisecs,
-		                      List<LocalizedTextSnippet> localizedTextSnippets
-		) {
-			var requestedLengthInSamples = millisecs /(float) 1000 * t.SAMPLE_RATE;
-			var usualLengthInSamples = 0F;
-			for (var lts : localizedTextSnippets) {
-				t.synthesize(lts.locale, lts.textSnippet, 1F);
-				usualLengthInSamples += This.Locales.getWeight(lts.locale) * t.bBuf.remaining() / Short.BYTES;
-			}
-			var scalingFactorOfWhole = (requestedLengthInSamples / usualLengthInSamples)
-				* .9F; //speeding up in excess for insurance
-			for (var lts : localizedTextSnippets) {
-				t.synthesize(lts.locale, lts.textSnippet,
-					This.Locales.scalingFactorToSpeechRate(lts.locale,
-						scalingFactorOfWhole * This.Locales.getWeight(lts.locale) ) );
-				cb.read(t.bBuf, cb.remaining());
+	void synthesizeFitted(CyclicByteBuffer cb, int millisecs,
+	                      List<LocalizedTextSnippet> localizedTextSnippets
+	) {
+		final var PAUSE_LENGTH_IN_SAMPLES = 712;
+		var requestedLengthInSamples = millisecs /(float) 1000 * t.SAMPLE_RATE;
+		var usualLengthInSamples = 0F;
+		for (var it = localizedTextSnippets.iterator();;) {
+			var lts = it.next();
+			t.synthesize(lts.locale, lts.textSnippet, 1F);
+			t.trimSilence();
+			usualLengthInSamples +=
+				Locales.weights[Locales.localeToIndex.get(lts.locale)] * t.bBuf.remaining() / Short.BYTES;
+
+			usualLengthInSamples += PAUSE_LENGTH_IN_SAMPLES;
+			if (!it.hasNext()) {
+				//usualLengthInSamples += 3*PAUSE_LENGTH_IN_SAMPLES;
+				break;
 			}
 		}
-	/*/// trimSilence & addPauses
-		void synthesizeFitted(CyclicByteBuffer cb, int millisecs,
-		                      List<LocalizedTextSnippet> localizedTextSnippets
-		) {
-			final var PAUSE_LENGTH_IN_SAMPLES = 712;
-			var requestedLengthInSamples = millisecs /(float) 1000 * t.SAMPLE_RATE;
-			var usualLengthInSamples = 0F;
-			for (var it = localizedTextSnippets.iterator();;) {
-				var lts = it.next();
-				t.synthesize(lts.locale, lts.textSnippet, 1F);
-				t.trimSilence();
-				usualLengthInSamples +=
-					This.Locales.getWeight(lts.locale) * t.bBuf.remaining() / Short.BYTES;
+		var scalingFactorOfWhole = (requestedLengthInSamples / usualLengthInSamples)
+			* .9F; //speeding up in excess for insurance
 
-				usualLengthInSamples += PAUSE_LENGTH_IN_SAMPLES;
-				if (!it.hasNext()) {
-					//usualLengthInSamples += 3*PAUSE_LENGTH_IN_SAMPLES;
-					break;
-				}
-			}
-			var scalingFactorOfWhole = (requestedLengthInSamples / usualLengthInSamples)
-				* .9F; //speeding up in excess for insurance
-			//err.printf("%6.3f: ", scalingFactorOfWhole);
-			for (var it = localizedTextSnippets.iterator();;) {
-				var lts = it.next();
-				var speechRate = This.Locales.scalingFactorToSpeechRate(
-					lts.locale, scalingFactorOfWhole * This.Locales.getWeight(lts.locale)
+		for (var lts : localizedTextSnippets) {
+			var localeIndex = Locales.localeToIndex.get(lts.locale);
+			var maxScalingFactor = Locales.maxScalingFactors[localeIndex];
+			if (scalingFactorOfWhole > maxScalingFactor)
+				scalingFactorOfWhole = maxScalingFactor;
+		}
+
+		for (var it = localizedTextSnippets.iterator();;) {
+			var lts = it.next();
+			var localeIndex = Locales.localeToIndex.get(lts.locale);
+			var speechRate = Locales.hyperbola(
+				Locales.hyperbolaParameters[localeIndex],
+				1 / (scalingFactorOfWhole * Locales.weights[localeIndex])
+			);
+			if (speechRate > MAX_SPEECH_RATE) {
+				err.printf("synthesizeFitted: speechRate==%s > %s; speechRate=%<s%n",
+					speechRate, MAX_SPEECH_RATE
 				);
-				//err.printf("%6.3f ", speechRate);
-				t.synthesize(lts.locale, lts.textSnippet, speechRate);
-				t.trimSilence();
-				if (lts.locale == Locale.US)
-					t.scaleVolume(.9F);
-				cb.read(t.bBuf, cb.remaining());
-
-				cb.readZeros(cb.remaining(), Math.round(scalingFactorOfWhole*PAUSE_LENGTH_IN_SAMPLES)*Short.BYTES);
-				if (!it.hasNext()) {
-					//cb.readZeros(
-					//	cb.remaining(), Math.round(scalingFactorOfWhole*3*PAUSE_LENGTH_IN_SAMPLES)*Short.BYTES
-					//);
-					break;
-				}
+				speechRate = MAX_SPEECH_RATE;
+			} else if (speechRate < MIN_SPEECH_RATE) {
+				err.printf("synthesizeFitted: speechRate==%s < %s; speechRate=%<s%n",
+					speechRate, MIN_SPEECH_RATE
+				);
+				speechRate = MIN_SPEECH_RATE;
 			}
-			err.println();
+			t.synthesize(lts.locale, lts.textSnippet, speechRate);
+			t.trimSilence();
+			if (lts.locale == Locale.US)
+				t.scaleVolume(.9F);
+			cb.read(t.bBuf, cb.remaining());
+
+			cb.readZeros(cb.remaining(), Math.round(scalingFactorOfWhole*PAUSE_LENGTH_IN_SAMPLES)*Short.BYTES);
+			if (!it.hasNext()) {
+				//cb.readZeros(
+				//	cb.remaining(), Math.round(scalingFactorOfWhole*3*PAUSE_LENGTH_IN_SAMPLES)*Short.BYTES
+				//);
+				break;
+			}
 		}
-	//*/
+		err.println();
+	}
 
 	static class Locales {
-		static final float
-			CHINESE_WEIGHT = 0.6F,
-			JAPANESE_WEIGHT = CHINESE_WEIGHT,
-			ENGLISH_WEIGHT = 1F-CHINESE_WEIGHT;
-		static final float[]
-			/* withoutTrimmingSilence & withoutAddingPauses
-				CHINESE_HYPERBOLA_PARAMETERS =
-					{1.7732040F, -0.7458208F, -0.0375369F,  5.0222243F, -4.0082481F, -0.0126590F},
-				ENGLISH_HYPERBOLA_PARAMETERS =
-					{1.8122062F, -0.7882950F, -0.0318054F,  5.1861847F, -4.1677760F, -0.0136545F};
-			/*/// trimSilence & addPauses
-				CHINESE_HYPERBOLA_PARAMETERS =
-					{1.7715442F, -0.7471100F, -0.0323078F,  5.0377975F, -4.0806848F, +0.0039996F},
-				JAPANESE_HYPERBOLA_PARAMETERS =
-					{1.7717927F, -0.7500721F, -0.0302079F,  5.0085549F, -4.0256025F, -0.0049099F},
-				ENGLISH_HYPERBOLA_PARAMETERS =
-					{1.7750670F, -0.7527805F, -0.0301314F,  5.0207221F, -4.0220480F, -0.0080111F};
-			//*/
+		static final Map<Locale, Integer> localeToIndex = new HashMap<>();
+		static {
+			localeToIndex.put(Locale.CHINA, 0);
+			localeToIndex.put(Locale.JAPAN, 1);
+			localeToIndex.put(Locale.US, 2);
+		}
+		static final float PRIMARY_LOCALE_WEIGHT = 0.5F; //0.6F;
+		static final float[] weights = {
+			PRIMARY_LOCALE_WEIGHT,
+			PRIMARY_LOCALE_WEIGHT,
+			1F-PRIMARY_LOCALE_WEIGHT
+		};
+		static final float[][] hyperbolaParameters = {
+			{1.7715442F, -0.7471100F, -0.0323078F,  5.0377975F, -4.0806848F, +0.0039996F},
+			{1.7717927F, -0.7500721F, -0.0302079F,  5.0085549F, -4.0256025F, -0.0049099F},
+			{1.7750670F, -0.7527805F, -0.0301314F,  5.0207221F, -4.0220480F, -0.0080111F}
+		};
 
 		static float hyperbola(float[] parameters, float x) {
-			final var MIN_Y = .2F;
-			final var MAX_Y = 4F;
-			float y;
-			if (x <= 1F) {
-				y = parameters[0] + parameters[1] / (x + parameters[2]);
-				if (y < MIN_Y) {
-					//err.printf("hyperbola: couldn't fit y=%s, setting y=%s instead.%n", y, MIN_Y);
-					y = MIN_Y;
-				}
-			} else {
-				y = parameters[3] + parameters[4] / (x + parameters[5]);
-				if (y > MAX_Y) {
-					err.printf("hyperbola: couldn't fit y=%s, setting y=%s instead.%n", y, MAX_Y);
-					y = MAX_Y;
-				}
+			return (x <= 1F)? (
+				parameters[0] + parameters[1] / (x + parameters[2])
+			):(
+				parameters[3] + parameters[4] / (x + parameters[5])
+			);
+		}
+
+		static float inverseHyperbola(float[] parameters, float y) {
+			return (y <= 1F)? (
+				-parameters[2] + parameters[1] / (y - parameters[0])
+			):(
+				-parameters[5] + parameters[4] / (y - parameters[3])
+			);
+		}
+
+		static final float[] maxScalingFactors;
+		static {
+			maxScalingFactors = new float[localeToIndex.size()];
+			for (var i=0; i<maxScalingFactors.length; i++) {
+				maxScalingFactors[i] = 1 / (
+					inverseHyperbola(hyperbolaParameters[i], MIN_SPEECH_RATE) *
+					weights[i]
+				);
 			}
-			return y;
-		}
-		static <This extends Locales>
-			float scalingFactorToSpeechRate(Locale locale, float scalingFactor)
-		{
-			if      (locale==Locale.CHINA)
-				return This.hyperbola(CHINESE_HYPERBOLA_PARAMETERS, 1/scalingFactor);
-			else if (locale==Locale.JAPAN)
-				return This.hyperbola(JAPANESE_HYPERBOLA_PARAMETERS, 1/scalingFactor);
-			else if (locale==Locale.US)
-				return This.hyperbola(ENGLISH_HYPERBOLA_PARAMETERS, 1/scalingFactor);
-			else
-				return -1F;
-		}
-		static float getWeight(Locale locale) {
-			if      (locale==Locale.CHINA)
-				return CHINESE_WEIGHT;
-			else if (locale==Locale.JAPAN)
-				return JAPANESE_WEIGHT;
-			else if (locale==Locale.US)
-				return ENGLISH_WEIGHT;
-			else
-				return -1F;
 		}
 	}
 
