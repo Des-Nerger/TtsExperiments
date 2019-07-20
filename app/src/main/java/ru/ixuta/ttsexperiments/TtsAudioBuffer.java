@@ -132,9 +132,11 @@ final class TtsAudioBuffer<This extends TtsAudioBuffer> {
 				);
 				speechRate = MAX_SPEECH_RATE;
 			} else if (speechRate < MIN_SPEECH_RATE) {
+				/*
 				err.printf("synthesizeFitted: speechRate==%s < %s; speechRate=%<s%n",
 					speechRate, MIN_SPEECH_RATE
 				);
+				*/
 				speechRate = MIN_SPEECH_RATE;
 			}
 			t.synthesize(lts.locale, lts.textSnippet, speechRate);
