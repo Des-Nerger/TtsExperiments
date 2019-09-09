@@ -250,7 +250,8 @@ final class Srt {
 						    primaryLocale == Locale.JAPAN && (
 						    	0x3041 <= c && c <= 0x3096 || 0x30A1 <= c && c <= 0x30FA ||
 						    	0xFF10 <= c && c <= 0xFF19 || 0xFF21 <= c && c <= 0xFF3A || 0xFF41 <= c && c <= 0xFF5A
-						    )
+						    ) ||
+						    primaryLocale == Locale.CHINA && 0x3105 <= c && c <= 0x312D
 						) {
 							currentToken.locale = primaryLocale;
 							if (currentToken.firstLocalCharIndex == NO_INDEX)
